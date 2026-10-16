@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>수업료 정산 대시보드</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#fff; --text:#1f2430; --muted:#6b7280; --line:#e5e7eb;
+    --accent:#2f6fed; --accent-dark:#2459c4; --ok:#15803d; --warn:#b45309;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+  .app{max-width:1000px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+  .card h2{font-size:15px;margin:0 0 12px}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+  label{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:4px}
+  input,select,textarea{font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--text)}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:0}
+  button{font:inherit;font-size:14px;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--text)}
+  button:hover{background:#f3f4f6}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover{background:var(--accent-dark)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .status{font-size:13px;color:var(--muted);margin-top:8px;min-height:18px}
+  .status.err{color:#b91c1c}
+  .status.ok{color:var(--ok)}
+  .grow{flex:1;min-width:160px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+  th{font-size:12px;color:var(--muted);font-weight:600;background:#fafafa}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  td input.price{width:110px;text-align:right}
+  tfoot td{font-weight:700;border-bottom:none;background:#fafafa}
+  .tag{display:inline-block;font-size:12px;background:#eef2ff;color:#3730a3;border-radius:999px;padding:1px 8px;margin:1px 3px 1px 0}
+  .detail{font-size:12px;color:var(--muted);padding:6px 8px 10px 8px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .stat .k{font-size:12px;color:var(--muted)}
+  .stat .v{font-size:20px;font-weight:700}
+  details summary{cursor:pointer;font-size:15px;font-weight:600}
+  .link{background:none;border:none;color:var(--accent);padding:0;cursor:pointer;font-size:13px}
+  .hidden{display:none!important}
+  .empty{color:var(--muted);text-align:center;padding:24px 0;font-size:14px}
+
+  /* 인보이스 오버레이 */
+  .overlay{position:fixed;inset:0;background:rgba(17,24,39,.55);overflow:auto;z-index:50;padding:20px 12px}
+  .toolbar{max-width:794px;margin:0 auto 12px;display:flex;gap:8px;justify-content:flex-end}
+  .invoice{background:#fff;max-width:794px;margin:0 auto 16px;padding:48px 52px;color:#111;border-radius:6px;min-height:520px}
+  .invoice h3{font-size:26px;letter-spacing:6px;text-align:center;margin:0 0 28px}
+  .invoice .meta{display:flex;justify-content:space-between;gap:20px;margin-bottom:22px;font-size:14px}
+  .invoice .meta div p{margin:2px 0}
+  .invoice table{font-size:13px}
+  .invoice th{background:#f3f4f6;color:#111}
+  .invoice .total{margin-top:16px;text-align:right;font-size:18px;font-weight:700}
+  .invoice .bank{margin-top:28px;padding-top:14px;border-top:1px solid #ddd;font-size:13px;white-space:pre-line}
+  .invoice .foot{margin-top:30px;text-align:center;font-size:13px;color:#555}
+
+  @media print{
+    body{background:#fff}
+    .app{display:none}
+    .overlay{position:static;background:none;padding:0;overflow:visible}
+    .toolbar{display:none}
+    .invoice{box-shadow:none;margin:0;border-radius:0;max-width:none;page-break-after:always;padding:30px 36px}
+    .invoice:last-child{page-break-after:auto}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>수업료 정산 대시보드</h1>
+  <div class="sub">구글 캘린더의 수업 일정을 월별로 집계해 수강생별 수업료와 인보이스를 만듭니다.</div>
+
+  <!-- 연결 -->
+  <div class="card">
+    <h2>1. 구글 캘린더 연결</h2>
+    <div class="row">
+      <button id="btnSignIn" class="primary">구글 로그인</button>
+      <label class="grow">캘린더
+        <select id="calSelect" disabled><option>로그인 후 선택</option></select>
+      </label>
+      <label>청구 월
+        <input type="month" id="month">
+      </label>
+      <button id="btnLoad" disabled>일정 불러오기</button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <!-- 설정 -->
+  <div class="card">
+    <details id="settingsBox">
+      <summary>설정 (처음 한 번만)</summary>
+      <div style="margin-top:12px" class="row">
+        <label class="grow">구글 OAuth 클라이언트 ID
+          <input id="clientId" placeholder="xxxxxxxx.apps.googleusercontent.com">
+        </label>
+        <label class="grow">학원 정식 명칭 (인보이스 표기)
+          <input id="academy">
+        </label>
+        <label class="grow">제외 키워드 (쉼표로 구분)
+          <input id="excludeWords" placeholder="휴강, 취소">
+        </label>
+      </div>
+      <div style="margin-top:10px" class="row">
+        <label class="grow">입금 계좌 안내 (인보이스 하단)
+          <textarea id="bankInfo" rows="2" placeholder="예) OO은행 000-000-000000 (예금주: OOO)"></textarea>
+        </label>
+        <label class="grow">인보이스 하단 문구
+          <input id="footNote" placeholder="예) 감사합니다.">
+        </label>
+      </div>
+      <div style="margin-top:10px"><button id="btnSaveSettings">설정 저장</button>
+        <span class="status" id="settingsMsg"></span></div>
+      <div class="detail">설정과 단가는 이 브라우저에만 저장되며 서버로 전송되지 않습니다.</div>
+    </details>
+  </div>
+
+  <!-- 요약 -->
+  <div class="stats">
+    <div class="stat"><div class="k">수강생 수</div><div class="v" id="sStudents">0</div></div>
+    <div class="stat"><div class="k">총 수업 횟수</div><div class="v" id="sLessons">0</div></div>
+    <div class="stat"><div class="k">총 청구 금액</div><div class="v" id="sTotal">0원</div></div>
+    <div class="stat"><div class="k">단가 미입력</div><div class="v" id="sMissing">0</div></div>
+  </div>
+
+  <!-- 결과 -->
+  <div class="card">
+    <h2>2. 수강생별 정산 <span id="monthLabel" style="color:var(--muted);font-weight:400"></span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <button id="btnAllInvoices" disabled>전체 인보이스 보기</button>
+      <button id="btnCsv" disabled>CSV 내보내기</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead>
+          <tr><th>수강생</th><th>과목</th><th class="num">수업 횟수</th><th class="num">회당 단가(원)</th><th class="num">청구 금액</th><th></th></tr>
+        </thead>
+        <tbody id="tbody"><tr><td colspan="6" class="empty">일정을 불러오면 여기에 표시됩니다.</td></tr></tbody>
+        <tfoot id="tfoot" class="hidden"><tr><td colspan="2">합계</td><td class="num" id="fLessons"></td><td></td><td class="num" id="fTotal"></td><td></td></tr></tfoot>
+      </table>
+    </div>
+  </div>
+
+  <!-- 제외된 일정 -->
+  <div class="card hidden" id="skippedCard">
+    <details>
+      <summary id="skippedSummary">집계에서 제외된 일정</summary>
+      <div class="detail" id="skippedList"></div>
+    </details>
+  </div>
+</div>
+
+<!-- 인보이스 -->
+<div id="overlay" class="overlay hidden">
+  <div class="toolbar">
+    <button class="primary" id="btnPrint">인쇄 / PDF 저장</button>
+    <button id="btnClose">닫기</button>
+  </div>
+  <div id="invoices"></div>
+</div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+(function(){
+  'use strict';
+  const $ = s => document.querySelector(s);
+  const LS = {
+    get(k, d){ try{ const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); }catch(e){ return d; } },
+    set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+  };
+  const SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+
+  let token = null, tokenClient = null;
+  let lessons = [];     // {name, subject, date, title}
+  let skipped = [];     // {title, date, reason}
+  let prices = LS.get('prices', {});
+
+  /* ---------- 유틸 ---------- */
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const won = n => (Number(n) || 0).toLocaleString('ko-KR') + '원';
+  const pad = n => String(n).padStart(2, '0');
+  const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const dow = d => '일월화수목금토'[d.getDay()];
+  function setStatus(msg, cls){ const el = $('#status'); el.textContent = msg || ''; el.className = 'status ' + (cls || ''); }
+
+  function parseEventDate(ev){
+    if (ev.start && ev.start.dateTime) return new Date(ev.start.dateTime);
+    if (ev.start && ev.start.date){ const [y,m,d] = ev.start.date.split('-').map(Number); return new Date(y, m-1, d); }
+    return null;
+  }
+
+  // "김민수 - 스페인어", "김민수 스페인어", "김민수/영어" 등에서 이름과 과목을 분리
+  function parseTitle(title){
+    const t = (title || '').trim();
+    if (!t) return null;
+    let m = t.match(/^(.+?)\s*[-–—\/_·,:|]\s*(.+)$/);
+    if (m) return { name: m[1].trim(), subject: m[2].trim() };
+    m = t.match(/^(\S+)\s+(.+)$/);
+    if (m) return { name: m[1].trim(), subject: m[2].trim() };
+    return { name: t, subject: '' };
+  }
+
+  /* ---------- 설정 ---------- */
+  function loadSettings(){
+    $('#clientId').value = LS.get('clientId', '');
+    $('#academy').value = LS.get('academy', '다인원격평생교육직업학원');
+    $('#excludeWords').value = LS.get('excludeWords', '휴강, 취소');
+    $('#bankInfo').value = LS.get('bankInfo', '');
+    $('#footNote').value = LS.get('footNote', '감사합니다.');
+    if (!LS.get('clientId', '')) $('#settingsBox').open = true;
+  }
+  $('#btnSaveSettings').addEventListener('click', () => {
+    LS.set('clientId', $('#clientId').value.trim());
+    LS.set('academy', $('#academy').value.trim());
+    LS.set('excludeWords', $('#excludeWords').value.trim());
+    LS.set('bankInfo', $('#bankInfo').value);
+    LS.set('footNote', $('#footNote').value.trim());
+    tokenClient = null;
+    const m = $('#settingsMsg'); m.textContent = ' 저장했습니다.'; m.className = 'status ok';
+    setTimeout(() => { m.textContent = ''; }, 2500);
+  });
+
+  /* ---------- 구글 로그인 ---------- */
+  function ensureTokenClient(){
+    const cid = LS.get('clientId', '');
+    if (!cid){ setStatus('설정에서 구글 OAuth 클라이언트 ID를 먼저 입력하고 저장해 주세요.', 'err'); $('#settingsBox').open = true; return false; }
+    if (!window.google || !google.accounts){ setStatus('구글 로그인 스크립트를 불러오는 중입니다. 잠시 후 다시 눌러 주세요.', 'err'); return false; }
+    if (!tokenClient){
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: cid,
+        scope: SCOPE,
+        callback: async resp => {
+          if (resp.error){ setStatus('로그인 실패: ' + resp.error, 'err'); return; }
+          token = resp.access_token;
+          setStatus('로그인되었습니다. 캘린더 목록을 가져오는 중...');
+          try{ await loadCalendars(); }catch(e){ setStatus('캘린더 목록을 가져오지 못했습니다: ' + e.message, 'err'); }
+        },
+        error_callback: err => setStatus('로그인 창이 닫혔거나 오류가 발생했습니다. (' + (err.type || '') + ')', 'err')
+      });
+    }
+    return true;
+  }
+  $('#btnSignIn').addEventListener('click', () => {
+    if (!ensureTokenClient()) return;
+    tokenClient.requestAccessToken({ prompt: token ? '' : 'consent' });
+  });
+
+  async function api(url){
+    const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    if (r.status === 401){ token = null; throw new Error('로그인이 만료되었습니다. 다시 로그인해 주세요.'); }
+    if (!r.ok){ throw new Error('요청 실패 (' + r.status + ')'); }
+    return r.json();
+  }
+
+  async function loadCalendars(){
+    const data = await api('https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader&maxResults=250');
+    const sel = $('#calSelect');
+    sel.innerHTML = '';
+    const items = (data.items || []).sort((a,b) => (b.primary?1:0) - (a.primary?1:0));
+    items.forEach(c => {
+      const o = document.createElement('option');
+      o.value = c.id; o.textContent = (c.summaryOverride || c.summary) + (c.primary ? ' (기본)' : '');
+      sel.appendChild(o);
+    });
+    const saved = LS.get('calendarId', '');
+    if (saved && items.some(c => c.id === saved)) sel.value = saved;
+    sel.disabled = false;
+    $('#btnLoad').disabled = false;
+    setStatus('캘린더와 청구 월을 선택한 뒤 "일정 불러오기"를 눌러 주세요.', 'ok');
+  }
+  $('#calSelect').addEventListener('change', e => LS.set('calendarId', e.target.value));
+
+  /* ---------- 일정 불러오기 ---------- */
+  $('#btnLoad').addEventListener('click', async () => {
+    const mv = $('#month').value;
+    if (!mv){ setStatus('청구 월을 선택해 주세요.', 'err'); return; }
+    const [y, m] = mv.split('-').map(Number);
+    const start = new Date(y, m-1, 1), end = new Date(y, m, 1);
+    const calId = $('#calSelect').value;
+    setStatus('일정을 불러오는 중...');
+    $('#btnLoad').disabled = true;
+    try{
+      const events = [];
+      let pageToken = '';
+      do{
+        const url = 'https://www.googleapis.com/calendar/v3/calendars/' + encodeURIComponent(calId) + '/events'
+          + '?singleEvents=true&orderBy=startTime&maxResults=2500'
+          + '&timeMin=' + encodeURIComponent(start.toISOString())
+          + '&timeMax=' + encodeURIComponent(end.toISOString())
+          + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+        const data = await api(url);
+        events.push(...(data.items || []));
+        pageToken = data.nextPageToken || '';
+      } while (pageToken);
+      buildLessons(events);
+      $('#monthLabel').textContent = `(${y}년 ${m}월)`;
+      render();
+      setStatus(`일정 ${events.length}건을 읽어 ${lessons.length}건을 수업으로 집계했습니다.`, 'ok');
+    }catch(e){
+      setStatus(e.message, 'err');
+    }finally{
+      $('#btnLoad').disabled = false;
+    }
+  });
+
+  function buildLessons(events){
+    const words = LS.get('excludeWords', '휴강, 취소').split(',').map(s => s.trim()).filter(Boolean);
+    lessons = []; skipped = [];
+    events.forEach(ev => {
+      const date = parseEventDate(ev);
+      const title = (ev.summary || '').trim();
+      if (!date) return;
+      if (ev.status === 'cancelled'){ skipped.push({ title: title || '(제목 없음)', date, reason: '취소된 일정' }); return; }
+      if (!title){ skipped.push({ title: '(제목 없음)', date, reason: '제목 없음' }); return; }
+      const hit = words.find(w => title.includes(w));
+      if (hit){ skipped.push({ title, date, reason: '제외 키워드: ' + hit }); return; }
+      const p = parseTitle(title);
+      if (!p || !p.name){ skipped.push({ title, date, reason: '이름 인식 불가' }); return; }
+      lessons.push({ name: p.name, subject: p.subject, date, title });
+    });
+  }
+
+  /* ---------- 집계 ---------- */
+  function groupByStudent(){
+    const map = new Map();
+    lessons.forEach(l => {
+      if (!map.has(l.name)) map.set(l.name, { name: l.name, items: [], subjects: new Map() });
+      const g = map.get(l.name);
+      g.items.push(l);
+      const key = l.subject || '-';
+      g.subjects.set(key, (g.subjects.get(key) || 0) + 1);
+    });
+    return [...map.values()].sort((a,b) => a.name.localeCompare(b.name, 'ko'));
+  }
+
+  function render(){
+    const groups = groupByStudent();
+    const tb = $('#tbody');
+    if (!groups.length){
+      tb.innerHTML = '<tr><td colspan="6" class="empty">해당 월에 집계된 수업이 없습니다.</td></tr>';
+      $('#tfoot').classList.add('hidden');
+    } else {
+      tb.innerHTML = groups.map((g, i) => {
+        const subj = [...g.subjects.entries()].map(([s, c]) => `<span class="tag">${esc(s)} ${c}회</span>`).join('');
+        const price = prices[g.name] || '';
+        return `<tr data-i="${i}">
+          <td><strong>${esc(g.name)}</strong></td>
+          <td>${subj}</td>
+          <td class="num">${g.items.length}회</td>
+          <td class="num"><input class="price" type="number" min="0" step="1000" inputmode="numeric" data-name="${esc(g.name)}" value="${esc(price)}" placeholder="단가"></td>
+          <td class="num amount" data-name="${esc(g.name)}"></td>
+          <td class="num"><button class="link" data-act="dates" data-name="${esc(g.name)}">일자</button> · <button class="link" data-act="invoice" data-name="${esc(g.name)}">인보이스</button></td>
+        </tr>
+        <tr class="hidden" data-detail="${esc(g.name)}"><td colspan="6" class="detail">${g.items.map(l => `${l.date.getMonth()+1}/${l.date.getDate()}(${dow(l.date)}) ${esc(l.subject)}`).join(' · ')}</td></tr>`;
+      }).join('');
+      $('#tfoot').classList.remove('hidden');
+    }
+    renderSkipped();
+    updateTotals();
+    const has = groups.length > 0;
+    $('#btnAllInvoices').disabled = !has;
+    $('#btnCsv').disabled = !has;
+  }
+
+  function updateTotals(){
+    const groups = groupByStudent();
+    let total = 0, count = 0, missing = 0;
+    groups.forEach(g => {
+      const p = Number(prices[g.name]) || 0;
+      const amt = p * g.items.length;
+      total += amt; count += g.items.length;
+      if (!p) missing++;
+      const cell = document.querySelector(`td.amount[data-name="${CSS.escape(g.name)}"]`);
+      if (cell) cell.textContent = p ? won(amt) : '-';
+    });
+    $('#sStudents').textContent = groups.length;
+    $('#sLessons').textContent = count;
+    $('#sTotal').textContent = won(total);
+    $('#sMissing').textContent = missing;
+    $('#fLessons').textContent = count + '회';
+    $('#fTotal').textContent = won(total);
+  }
+
+  function renderSkipped(){
+    const card = $('#skippedCard');
+    if (!skipped.length){ card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+    $('#skippedSummary').textContent = `집계에서 제외된 일정 (${skipped.length}건)`;
+    $('#skippedList').innerHTML = skipped.map(s => `${s.date.getMonth()+1}/${s.date.getDate()} ${esc(s.title)} <span style="color:#9ca3af">— ${esc(s.reason)}</span>`).join('<br>');
+  }
+
+  $('#tbody').addEventListener('input', e => {
+    if (!e.target.classList.contains('price')) return;
+    const name = e.target.dataset.name;
+    const v = e.target.value.trim();
+    if (v === '') delete prices[name]; else prices[name] = Number(v);
+    LS.set('prices', prices);
+    updateTotals();
+  });
+  $('#tbody').addEventListener('click', e => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const name = b.dataset.name;
+    if (b.dataset.act === 'dates'){
+      const row = document.querySelector(`tr[data-detail="${CSS.escape(name)}"]`);
+      if (row) row.classList.toggle('hidden');
+    } else {
+      openInvoices([name]);
+    }
+  });
+
+  /* ---------- 인보이스 ---------- */
+  function invoiceHTML(g){
+    const academy = LS.get('academy', '다인원격평생교육직업학원');
+    const bank = LS.get('bankInfo', '');
+    const foot = LS.get('footNote', '');
+    const p = Number(prices[g.name]) || 0;
+    const mv = $('#month').value.split('-');
+    const rows = g.items.map((l, i) => `<tr>
+        <td>${i+1}</td><td>${ymd(l.date)} (${dow(l.date)})</td><td>${esc(l.subject || '수업')}</td>
+        <td class="num">${won(p)}</td></tr>`).join('');
+    const issue = new Date();
+    return `<div class="invoice">
+      <h3>수 업 료 청 구 서</h3>
+      <div class="meta">
+        <div><p><strong>수강생</strong>: ${esc(g.name)}</p><p><strong>청구 월</strong>: ${mv[0]}년 ${Number(mv[1])}월</p><p><strong>발행일</strong>: ${ymd(issue)}</p></div>
+        <div style="text-align:right"><p><strong>${esc(academy)}</strong></p></div>
+      </div>
+      <table>
+        <thead><tr><th style="width:44px">No</th><th>수업 일자</th><th>과목</th><th class="num">금액</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="total">수업 ${g.items.length}회 × ${won(p)} = 합계 ${won(p * g.items.length)}</div>
+      ${bank ? `<div class="bank"><strong>입금 안내</strong>\n${esc(bank)}</div>` : ''}
+      ${foot ? `<div class="foot">${esc(foot)}</div>` : ''}
+    </div>`;
+  }
+
+  function openInvoices(names){
+    const groups = groupByStudent().filter(g => names.includes(g.name));
+    if (!groups.length) return;
+    const nop = groups.filter(g => !(Number(prices[g.name]) > 0)).map(g => g.name);
+    if (nop.length && !confirm('회당 단가가 비어 있는 수강생이 있습니다: ' + nop.join(', ') + '\n그대로 인보이스를 만들까요? (금액이 0원으로 표시됩니다)')) return;
+    $('#invoices').innerHTML = groups.map(invoiceHTML).join('');
+    $('#overlay').classList.remove('hidden');
+    $('#overlay').scrollTop = 0;
+  }
+  $('#btnAllInvoices').addEventListener('click', () => openInvoices(groupByStudent().map(g => g.name)));
+  $('#btnClose').addEventListener('click', () => $('#overlay').classList.add('hidden'));
+  $('#btnPrint').addEventListener('click', () => window.print());
+
+  /* ---------- CSV ---------- */
+  $('#btnCsv').addEventListener('click', () => {
+    const groups = groupByStudent();
+    const q = v => '"' + String(v).replace(/"/g, '""') + '"';
+    const lines = [['수강생','수업 횟수','회당 단가','청구 금액','수업 일자'].map(q).join(',')];
+    groups.forEach(g => {
+      const p = Number(prices[g.name]) || 0;
+      lines.push([g.name, g.items.length, p, p * g.items.length, g.items.map(l => ymd(l.date)).join(' ')].map(q).join(','));
+    });
+    const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `수업료정산_${$('#month').value}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
+  /* ---------- 초기화 ---------- */
+  (function init(){
+    const now = new Date();
+    // 기본값: 직전 달(월말 정산 후 다음 달 초에 청구하는 경우가 많음) 대신 이번 달
+    $('#month').value = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
+    loadSettings();
+  })();
+
+  // 테스트용 노출 (파싱 로직 점검)
+  window.__parseTitle = parseTitle;
+})();
+</script>
+</body>
+</html>
